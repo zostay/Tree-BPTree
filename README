@@ -1,4 +1,4 @@
-Tree-BPTree version 1.01
+Tree-BPTree version 1.03
 ========================
 
 This is a Perl implementation of B+ trees. I have based this implementation on a

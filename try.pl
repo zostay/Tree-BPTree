@@ -8,19 +8,19 @@ use Tree::BPTree;
 my $teststr = 'ANDREW STERLING HANENKAMP';
 my @splitstr = split //, $teststr;
 
-for (0 .. 100) {
+my $i = 0;
+my $tree = Tree::BPTree->new;
+print Dumper($tree);
+for (@splitstr) {
+	$tree->insert($_, $i++);
+	print Dumper($tree);
+}
 
-	my $i = 0;
-	my $tree = Tree::BPTree->new;
-	$tree->insert($_, $i++) for (@splitstr);
-	$tree->reverse;
+$tree->reverse;
+print Dumper($tree);
 
-	$i = 0;
-	foreach (@splitstr) {
-	#	print Dumper($tree);
-		print "DELETE ($_, $i)\n";
-		$tree->delete($_, $i++);
-	}
-
-	#print Dumper($tree);
+$i = 0;
+for (@splitstr) {
+	$tree->delete($_, $i++);
+	print Dumper($tree);
 }

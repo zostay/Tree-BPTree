@@ -6,5 +6,5 @@ WriteMakefile(
 	VERSION_FROM	=> 'BPTree.pm',
 	AUTHOR			=> 'Andrew Sterling Hanenkamp <hanenkamp@users.sourceforge.net>',
 	ABSTRACT_FROM	=> 'BPTree.pm',
-	PM				=> { 'BPTree.pm' => '$(INST_LIBDIR)/Tree/BPTree.pm' }
+	PM				=> { 'BPTree.pm' => '$(INST_LIBDIR)/BPTree.pm' }
 );

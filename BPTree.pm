@@ -1,12 +1,17 @@
 package Tree::BPTree;
 
+# $Id: BPTree.pm,v 1.2 2003-09-15 13:27:40 sterling Exp $
+
 use 5.008;
 use strict;
 use warnings;
 
+# all the math is for indexing
+use integer;
+
 use Carp;
 
-our $VERSION = '1.02';
+our $VERSION = '1.03';
 
 =head1 NAME
 
@@ -80,27 +85,6 @@ Tree::BPTree - Perl implementation of B+ trees
 
   # Clear it out and start over
   $tree->clear;
-
-=head1 MAJOR CAVEAT
-
-Before continuing, you should know this module is extremely slow. Since this is
-implemented in pure Perl, I don't think there is any chance at all of actually
-competing with hashes. Better performance is possible if you use a hash to do
-most of these operations. See F<benchmark.pl> for a sample of the performance
-issues. There you can also find code for performing essentially the same thing.
-
-On my machine, insert into the tree is 126 times slower than hash insert and 
-9 times slower than sorted list insert. Iteration in sort order is 22 times
-faster with hashes (even though the hashes have to be sorted during iteration)
-and 3 times faster with sorted lists. And tree find is 73 times slower than
-hash fetch--though it is actually approximately equivalent to using grep on an
-ordered list.
-
-I wrote this module both to accomplish some tasks I needed and because I was
-interested in understanding the algorithm better. This algorithm does provides
-some other value, such as gracefully handling iteration when elements are
-removed. However, I think I'm going to try a different solution to this problem
-after reviewing these performance deficiencies.
 
 =head1 DESCRIPTION
 
@@ -182,36 +166,38 @@ complicated.
 
 package Tree::BPTree::Node;
 
+use integer;
+
 sub new {
 	my ($class, @data) = @_;
 	@data = ( undef ) unless @data;
 	return bless \@data, ref $class || $class;
 }
 
-sub key {
-	my ($self, $k, $new) = @_;
-	$$self[$k * 2 + 1] = $new if defined $new;
-	return $$self[$k * 2 + 1];
-}
-
-sub value {
-	my ($self, $v, $new) = @_;
-	$$self[$v * 2] = $new if defined $new;
-	return $$self[$v * 2];
-}
-
-sub last_key {
-	my ($self, $new) = @_;
-	$$self[-2] = $new if defined $new;
-	return $$self[-2];
-}
-
-sub last_value {
-	my ($self, $new) = @_;
-	$$self[-1] = $new if defined $new;
-	return $$self[-1];
-}
-
+# sub key {
+# 	my ($self, $k, $new) = @_;
+# 	$$self[$k * 2 + 1] = $new if defined $new;
+# 	return $$self[$k * 2 + 1];
+# }
+# 
+# sub value {
+# 	my ($self, $v, $new) = @_;
+# 	$$self[$v * 2] = $new if defined $new;
+# 	return $$self[$v * 2];
+# }
+# 
+# sub last_key {
+# 	my ($self, $new) = @_;
+# 	$$self[-2] = $new if defined $new;
+# 	return $$self[-2];
+# }
+# 
+# sub last_value {
+# 	my ($self, $new) = @_;
+# 	$$self[-1] = $new if defined $new;
+# 	return $$self[-1];
+# }
+# 
 sub first_leaf {
 	my ($self) = @_;
 	my $current = $self;
@@ -229,27 +215,28 @@ sub last_leaf {
 	}
 	return $current;
 }
-
-sub nkeys {
-	my ($self) = @_;
-	return (scalar(@$self) - 1) / 2;
-}
-
-sub nvalues {
-	my ($self) = @_;
-	return (scalar(@$self) + 1) / 2;
-}
-
+# 
+# sub nkeys {
+# 	my ($self) = @_;
+# 	return (scalar(@$self) - 1) / 2;
+# }
+# 
+# sub nvalues {
+# 	my ($self) = @_;
+# 	return (scalar(@$self) + 1) / 2;
+# }
+ 
 # The find operation differs slightly between branch and leaf. See the comment
 # near Tree::BPTree::Leaf::find for details.
 sub find {
 	my ($self, $cmp, $key) = @_;
-	for (my $k = 0; $k < $self->nkeys; $k++) {
-		if (&$cmp($key, $self->key($k)) < 0) {
+	my $nkeys = (@$self - 1) / 2;
+	for (my $k = 0; $k < $nkeys; $k++) {
+		if (&$cmp($key, $self->[($k) * 2 + 1]) < 0) {
 			return $k;
 		}
 	}
-	return $self->nvalues - 1;
+	return (@$self + 1) / 2 - 1;
 }
 
 sub insert {
@@ -264,8 +251,8 @@ sub split {
 	# either incorporate the split in ourselves or split ourselves if we are
 	# full
 	my $v = $self->find($cmp, $key);
-	my $result = $self->value($v)->split($n, $cmp, $key);
-	if ($self->nvalues == $n && defined $result) {
+	my $result = $self->[($v) * 2]->split($n, $cmp, $key);
+	if ((@$self + 1) / 2 == $n && defined $result) {
 		# We're full and they split, we must split too. The way the split must
 		# be handled will depend upon whether this is a Left, Center, or Right
 		# split. That is, is the sub-split node pointer on the left side, the
@@ -285,33 +272,33 @@ sub split {
 		);
 
 		my $root_key;
-		if ($v < int($n / 2)) {
+		if ($v < $n / 2) {
 			# This is a left split. We need to clip off the last key, insert the
 			# child's new root key and set the pointers on either side to the
 			# new root nodes. Finally, return a new root with clipped key
 			# pointing to us and the new node.
 			$root_key = pop @$self;
-			my $i = $self->find($cmp, $result->key(0));
-			$self->insert($i, $result->key(0), $result->value(0));
-			$self->value($i+1, $result->value(1));
+			my $i = $self->find($cmp, $result->[1]);
+			$self->insert($i, $result->[1], $result->[0]);
+			$self->[($i+1) * 2] = $result->[2];
 
-		} elsif ($v > int($n / 2)) {
+		} elsif ($v > $n / 2) {
 			# This is a right split. Same as left in reverse, basically. We do
 			# need to first shear of the first pointer to the new node and
 			# append it back onto as the last pointer of the first node first.
 			push @$self, shift @$new_node;
 			$root_key = shift @$new_node;
-			my $i = $new_node->find($cmp, $result->key(0));
-			$new_node->value($i, $result->value(1));
-			$new_node->insert($i, $result->key(0), $result->value(0));
+			my $i = $new_node->find($cmp, $result->[1]);
+			$new_node->[($i) * 2] = $result->[2];
+			$new_node->insert($i, $result->[1], $result->[0]);
 		} else {
 			# This is a center split. Here, we append to ourself a new pointer
 			# pointing to the new left node. We set the new node's first pointer
 			# to the new right node. And we set the new root key to the child's
 			# new root key.
-			push @$self, $result->value(0);
-			$new_node->value(0, $result->value(1));
-			$root_key = $result->key(0);
+			push @$self, $result->[0];
+			$new_node->[0] = $result->[2];
+			$root_key = $result->[1];
 		}
 
 		return Tree::BPTree::Node->new($self, $root_key, $new_node);
@@ -324,7 +311,7 @@ sub split {
 		# key/pointer in reverse order from normal such that the key happens at
 		# $i and the value is at $i + 1
 		my $i = $self->find($cmp, $key);
-		splice @$self, $i * 2 + 1, 0, $$result[-1]->first_leaf->key(0), $$result[-1];
+		splice @$self, $i * 2 + 1, 0, $$result[-1]->first_leaf->[1], $$result[-1];
 		return undef;
 	} else {
 		# They didn't split, so we don't have to either
@@ -337,13 +324,13 @@ sub delete {
 
 	# Go to the bottom and drop the key from the leaf node
 	my $v = $self->find($cmp, $key);
-	my $result = $self->value($v)->delete($n, $cmp, $key);
+	my $result = $self->[($v) * 2]->delete($n, $cmp, $key);
 
 	# On our way back up, make the tree consistent; i.e., no empty leaves and no
 	# non-root nodes with less than n/2 values. If a key is deleted, but doesn't
 	# cause a coalesce or redistribute, we may keep that key in a branch node as
 	# a sort key, this shouldn't hurt us.
-	if ($self->value($v)->isa('Tree::BPTree::Leaf')) {
+	if ($self->[($v) * 2]->isa('Tree::BPTree::Leaf')) {
 		# Since this is a leaf, we only care if the leaf becomes empty. If it
 		# does, we remove the pointer to it from the current node and pass
 		# control upwards. 
@@ -366,18 +353,18 @@ sub delete {
 		# As a branch, the child node must not have fewer than n/2 children. If
 		# it does, we need to try to coalesce it with a neighbor or redistribute
 		# the children from a neighbor to the small node.
-		if ($result < $n / 2) {
+		if ($result <= $n / 2) {
 			# The branch is too small, we'll try to coalesce first
-			if ($v > 0 && $self->value($v - 1)->nvalues + $self->value($v)->nvalues <= $n) {
+			if ($v > 0 && ((@{$self->[($v - 1) * 2]} + 1) / 2) + ((@{$self->[($v    ) * 2]} + 1) / 2) <= $n) {
 				# We can coalesce the small node with it's left neighbor
-				$self->value($v-1)->coalesce($self->value($v));
+				$self->[($v-1) * 2]->coalesce($self->[($v) * 2]);
 				
 				# The removed node (the small node) is not first, so we delete
 				# it and the preceding key
 				splice @$self, $v * 2 - 1, 2;
-			} elsif ($v < $self->nvalues - 1 && $self->value($v)->nvalues + $self->value($v + 1)->nvalues <= $n) {
+			} elsif ($v < (((@$self + 1) / 2) - 1) && ((@{$self->[($v    ) * 2]} + 1) / 2) + ((@{$self->[($v + 1) * 2]} + 1) / 2) <= $n) {
 				# We can coalesce the small node with it's right neighbor
-				$self->value($v)->coalesce($self->value($v+1));
+				$self->[($v) * 2]->coalesce($self->[($v+1) * 2]);
 
 				# The removed node (the right neighbor) is not first, so we
 				# delete it and the preceding key
@@ -387,9 +374,9 @@ sub delete {
 				# if there is a left neighbor; otherwise, we'll pull the node
 				# from the right.
 				if ($v > 0) {
-					$self->value($v-1)->redistribute($self->value($v));
+					$self->[($v-1) * 2]->redistribute($self->[($v) * 2]);
 				} else {
-					$self->value($v)->redistribute($self->value($v+1));
+					$self->[($v) * 2]->redistribute($self->[($v+1) * 2]);
 				}
 				
 				# Furthermore, we need to reset the key affected in this node to
@@ -400,21 +387,21 @@ sub delete {
 				# We always use the latter pointer which is normally $v+1 or $v
 				# if it is already the last pointer.
 				if ($v > 0) {
-					$self->key($v - 1, $self->value($v)->first_leaf->key(0));
+					$self->[($v - 1) * 2 + 1] = $self->[$v * 2]->first_leaf->[1];
 				} else {
-					$self->key($v, $self->value($v + 1)->first_leaf->key(0))
+					$self->[($v) * 2 + 1] = $self->[($v + 1) * 2]->first_leaf->[1];
 				}
 			}
 		}
 	}
 
 	# Return the number of values remaining
-	return $self->nvalues;
+	return (@$self + 1) / 2;
 }
 
 sub coalesce {
 	my ($self, $that) = @_;
-	push @$self, $$that[0]->first_leaf->key(0), @$that;
+	push @$self, $$that[0]->first_leaf->[1], @$that;
 	return $self;
 }
 
@@ -425,14 +412,14 @@ sub redistribute {
 	# insert, we choose to use the first key of that, in either case, as it will
 	# always be higher than the last key of self. (The first key in that is
 	# always the key associated with the value being redistributed.)
-	if ($that->nvalues < $self->nvalues) {
+	if ((@$that + 1) / 2 < (@$self + 1) / 2) {
 		# Redistribute values from left to right
 		my @middle = splice @$self, -2, 2;
-		unshift @$that, $middle[-1], $$that[0]->first_leaf->key(0);
+		unshift @$that, $middle[-1], $$that[0]->first_leaf->[1];
 	} else {
 		# Redistribute values from right to left
 		my @middle = splice @$that, 0, 2;
-		push @$self, $middle[0]->first_leaf->key(0), $middle[0];
+		push @$self, $middle[0]->first_leaf->[1], $middle[0];
 	}
 }
 
@@ -444,17 +431,24 @@ sub reverse {
 	# first_leaf of the following subnode. Finally, we need to change the
 	# index key.
 	@$self = reverse @$self;
-	for (my $v = 0; $v < $self->nvalues; ++$v) {
-		$self->value($v)->reverse;
+	my $nvalues = (@$self + 1) / 2;
+	for (my $v = 0; $v < $nvalues; ++$v) {
+		$self->[($v) * 2]->reverse;
 	}
 
-	for (my $k = 0; $k < $self->nkeys; ++$k) {
-		$self->value($k)->last_leaf->last_value($self->value($k+1)->first_leaf);
-		$self->key($k, $self->value($k+1)->first_leaf->key(0));
+	my $nkeys = (@$self - 1) / 2;
+	for (my $k = 0; $k < $nkeys; ++$k) {
+		# Set the last pointer in the first node's last leaf to the first leaf
+		$self->[($k) * 2    ]->last_leaf->[-1] = $self->[($k + 1) * 2]->first_leaf;
+
+		# Set the current key to the second node's first leaf's key
+		$self->[($k) * 2 + 1]                  = $self->[($k + 1) * 2]->first_leaf->[1];
 	}
 }
 
 package Tree::BPTree::Leaf;
+
+use integer;
 
 our @ISA = qw(Tree::BPTree::Node);
 
@@ -464,18 +458,19 @@ our @ISA = qw(Tree::BPTree::Node);
 # equal.
 sub find {
 	my ($self, $cmp, $key) = @_;
-	for (my $k = 0; $k < $self->nkeys; $k++) {
-		if (&$cmp($key, $self->key($k)) <= 0) {
+	my $nkeys = (@$self - 1) / 2;
+	for (my $k = 0; $k < $nkeys; $k++) {
+		if (&$cmp($key, $self->[($k) * 2 + 1]) <= 0) {
 			return $k;
 		}
 	}
-	return $self->nvalues - 1;
+	return (@$self + 1) / 2 - 1;
 }
 
 sub split {
 	my ($self, $n) = @_;
 
-	if ($self->nvalues == $n) {
+	if ((@$self + 1) / 2 == $n) {
 		# We're big enough, we must split in anticipation of an insert. See the
 		# comments in Tree::BPTree::split if you want to know more about why
 		# choosing where and how many nodes to splice looks so weird.
@@ -504,7 +499,7 @@ sub delete {
 	splice @$self, $i * 2, 2;
 
 	# Return the number of values remaining
-	return $self->nvalues;
+	return (@$self + 1) / 2;
 }
 
 sub reverse {
@@ -514,8 +509,9 @@ sub reverse {
 	# backwards one position. We even reverse the buckets to create a completely
 	# symmetric reversal.
 	@$self = reverse @$self;
-	for (my $v = 0; $v < $self->nvalues - 1; ++$v) {
-		$self->value($v, [ reverse @{ $self->value($v+1) } ]);
+	my $nvalues = (@$self + 1) / 2 - 1;
+	for (my $v = 0; $v < $nvalues; ++$v) {
+		$self->[($v) * 2] = [ reverse @{ $self->[($v+1)*2] } ];
 	}
 	$$self[-1] = undef;
 }
@@ -594,9 +590,9 @@ sub _find_leaf {
 
 	my $cmp = $$self{-keycmp};
 	my $current = $$self{-root};
-	until ($current->isa('Tree::BPTree::Leaf')) {
+	while (defined $current and not $current->isa('Tree::BPTree::Leaf')) {
 		my $v = $current->find($cmp, $key);
-		$current = $current->value($v);
+		$current = $current->[$v * 2];
 	}
 
 	return $current;
@@ -621,8 +617,8 @@ sub find {
 	my $cmp = $$self{-keycmp};
 	my $leaf = $self->_find_leaf($key);
 	my $v = $leaf->find($cmp, $key);
-	if (&$cmp($leaf->key($v), $key) == 0) {
-		return wantarray ? @{ $leaf->value($v) } : ${ $leaf->value($v) }[0];
+	if (&$cmp($leaf->[($v) * 2 + 1], $key) == 0) {
+		return wantarray ? @{ $leaf->[($v) * 2] } : ${ $leaf->[($v) * 2] }[0];
 	} else {
 		return undef;
 	}
@@ -650,9 +646,9 @@ sub insert {
 	# First, see if the value is already there
 	my $leaf = $self->_find_leaf($key);
 	my $k = $leaf->find($cmp, $key);
-	if (defined $leaf->key($k) && &$cmp($leaf->key($k), $key) == 0) {
+	if (defined $leaf->[($k) * 2 + 1] && &$cmp($leaf->[($k) * 2 + 1], $key) == 0) {
 		croak "Unique key violation." if $$self{-unique};
-		push @{ $leaf->value($k) }, $value;
+		push @{ $leaf->[($k) * 2] }, $value;
 		return;
 	}
 	
@@ -695,12 +691,12 @@ sub delete {
 	# First, find the leaf containing the key
 	my $leaf = $self->_find_leaf($key);
 	my $i = $leaf->find($cmp, $key);
-	if (defined $leaf->key($i) && &$cmp($leaf->key($i), $key) == 0) {
-		if (scalar(@{ $leaf->value($i) }) > 1) {
-			my $bucket = $leaf->value($i);
+	if (defined $leaf->[($i) * 2 + 1] && &$cmp($leaf->[($i) * 2 + 1], $key) == 0) {
+		if (scalar(@{ $leaf->[($i) * 2] }) > 1) {
+			my $bucket = $leaf->[($i) * 2];
 			@$bucket = grep { &$valcmp($value, $_) != 0 } @$bucket;
 			return;
-		} elsif (!grep { &$valcmp($value, $_) == 0 } @{ $leaf->value($i) }) {
+		} elsif (!grep { &$valcmp($value, $_) == 0 } @{ $leaf->[($i) * 2] }) {
 			# no match for value, let's quit
 			return;
 		}
@@ -717,7 +713,7 @@ sub delete {
 
 	# if the tree contains only a single value and is a branch, then the tree is
 	# one level shallower than before the delete
-	$$self{-root} = $$self{-root}->value(0)
+	$$self{-root} = $$self{-root}->[0]
 			if not $$self{-root}->isa('Tree::BPTree::Leaf') and $values == 1;
 }
 
@@ -834,24 +830,24 @@ sub each {
 		$$cursor{-index} = 0;
 	}
 
-	if (defined $$cursor{-node} and $$cursor{-node}->nvalues > 1) {
+	if (defined $$cursor{-node} and (@{$$cursor{-node}} + 1) / 2 > 1) {
 		# The last run didn't detect the end of the list, so give them the next
 		# value
 		my @next = (
-			$$cursor{-node}->key($$cursor{-index}),
-			$$cursor{-node}->value($$cursor{-index}),
+			$$cursor{-node}->[($$cursor{-index}) * 2 + 1],
+			$$cursor{-node}->[($$cursor{-index}) * 2],
 		);
 
 		# Increment the pointer
-		if ($$cursor{-index} + 1 == $$cursor{-node}->nvalues - 1) {
+		if ($$cursor{-index} + 1 == (@{$$cursor{-node}} + 1) / 2 - 1) {
 			# We've reached the end of a node, move to the next
-			my $next_node = $$cursor{-node}->value($$cursor{-index} + 1);
+			my $next_node = $$cursor{-node}->[($$cursor{-index} + 1) * 2];
 
 			# Check for orphaned nodes and remove them
-			while (defined $next_node and $next_node->nvalues == 1) {
-				$next_node = $next_node->value(0);
+			while (defined $next_node and (@$next_node + 1) / 2 == 1) {
+				$next_node = $next_node->[0];
 			}
-			$$cursor{-node}->value($$cursor{-index} + 1, $next_node);
+			$$cursor{-node}->[($$cursor{-index} + 1) * 2] = $next_node;
 
 			# Move to the next node
 			$$cursor{-node}  = $next_node;
@@ -1090,6 +1086,41 @@ split, coalesce, and redistribute as the Silbershatz pseudo-code is a little
 obfuscated--or at least, the different operations are presented monolithically
 so that it's difficult to digest. The sections in Sedgewick on 2-3-4 and
 Red-Black trees were especially helpful.
+
+=head1 BUGS
+
+This module is pretty slow. Better performance is possible, especially for small
+bodies of data, if you use a hash to do most of these operations. See
+F<benchmark.pl> for a sample of the performance issues. There you can also find
+code for performing essentially the same thing using different data structures.
+
+On my machine, a small benchmark showed the following:
+
+  Insert into B+ Trees (this implementation) is:
+    62   times slower than hash insert and
+     4   times slower than list insert.
+
+  Ordered iteration of B+ Trees is:
+     1.3 times slower than ordering a hash and then iterating the pairs and
+    12   times slower than iterating through an ordered list.
+
+  Finding a key in B+ Trees is:
+    73   times slower than hash fetch but
+     1.2 times faster than searching an ordered list (with grep, which probably
+         isn't the fastest solution).
+
+I'm still putting together more benchmarks and looking into places where
+improvement is possible. Iteration of this structure should scale better than
+taking a hash and ordering the keys to iterate through.
+
+I have made some recent headway by removing some simple functions and replacing
+them with raw computation. If I did this the way I'd really like to, I need to
+find or build a L<Filter::Simple> module to perform something similar to a C
+C<#define> or C++ C<inline> function. However, instead I just did a search and
+replace with Vim.
+
+I should probably port this to XS to make it really compete with built-in
+hashes.
 
 =head1 AUTHOR
 

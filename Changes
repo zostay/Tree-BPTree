@@ -1,5 +1,19 @@
 Revision history for Perl extension Tree::BPTree.
 
+1.03  Mon Sep 15 2003
+	- Added prof.pl to perform some Perl profiler comparisons.
+	- Used profiling results to find which methods were causing the biggest
+	  slowdowns.
+	- Removed Tree::BPTree::Node::key, ::value, ::nkeys, ::nvalues, ::last_key,
+	  and ::last_value from the internal node API. This results in a 200%
+	  increase in the speed of insert and find and about a 2000% speed up for
+	  iteration.
+	- Updated the documentation to reflect this and added a bit more optimism.
+	- The try.pl script has changed some.
+	- Added missing regression tests for pairs().
+	- This release adds no features, just provides some optimization. This code
+	  is still slow, nonetheless.
+
 1.02  Sat Sep 13 2003
 	- Added benchmark.pl to compare speed to hashes and lists (results are
 	  attrocious.

@@ -30,11 +30,12 @@ my @sorted_flattened_values = map { @$_ } @sorted_values;
 my @letters = ('A' .. 'Z', 'a' .. 'z');
 my @matches = map { qr/^$letters[$_]/ } map { int(rand(scalar(@letters))) } 0 .. 9;
 
-plan tests => 3 * 48;
+plan tests => 4 * 48;
 
 sub test {
 	my ($tree) = @_;
 
+	is_deeply([ $tree->pairs ], \@sorted_pairs);
 	is_deeply([ $tree->keys ], \@sorted_keys);
 	is_deeply([ $tree->values ], \@sorted_values);
 	is_deeply([ $tree->flattened_values ], \@sorted_flattened_values);
