@@ -3,6 +3,8 @@ Revision history for Perl extension Tree::BPTree.
 1.05  Mon Sep 15 2003
 	- Added cursor current() method.
 	- Added a new test to t/cursors.t for testing this method.
+	- Fixed the MANIFEST as I forgot to add t/cursor_delete.t and
+	  t/cursor_delete_value.t in the last revision.
 
 1.04  Mon Sep 15 2003
 	- Added cursor delete.
