@@ -1,6 +1,6 @@
 package Tree::BPTree;
 
-# $Id: BPTree.pm,v 1.2 2003-09-15 13:27:40 sterling Exp $
+# $Id: BPTree.pm,v 1.3 2003-09-15 17:45:00 sterling Exp $
 
 use 5.008;
 use strict;
@@ -11,7 +11,7 @@ use integer;
 
 use Carp;
 
-our $VERSION = '1.03';
+our $VERSION = '1.04';
 
 =head1 NAME
 
@@ -56,12 +56,15 @@ Tree::BPTree - Perl implementation of B+ trees
   $tree->reset;
 
   # You might also be interested in using multiple each loops at once, which is
-  # possible through the cursor syntax
+  # possible through the cursor syntax. You can even delete keys or particular
+  # values attached to keys with cursors.
   my $cursor = $tree->new_cursor;
-  while (my ($key, $value) = $cursor->each) {
+  while (my ($key, $values) = $cursor->each) {
       my $nested = $tree->new_cursor;
-      while (my ($nkey, $nvalue) = $nested->each) {
-          # do something
+      while (my ($nkey, $nvalues) = $nested->each) {
+          if ($key->shouldnt_be_in_this_tree_with($nkey)) {
+			  $nested->delete;
+		  }
       }
   }
 
@@ -148,15 +151,19 @@ options to appropriate values during initialization.
 
 At some point, I want to post the best, average, and worst-case operation speed
 for this implementation of B+ trees, but for now we'll just have to live without
-those stats.
+those stats. For raw benchmarks, you should see the L<BUGS|/BUGS> section as the
+actual performance of this module is pretty slow.
 
 =head2 IMPLEMENTATION
 
-As a quick note on implementation, if you do want to know how specific
-operations work, please browse the source. I have included extensive comments
-within the definitions of the methods themselves explaining most of the
-important steps. I did this for my own sanity because B+ trees can be quite
-complicated.
+As a quick note on implementation, if you want to know how specific operations
+work, please browse the source. I have included extensive comments within the
+definitions of the methods themselves explaining most of the important steps. I
+did this for my own sanity because B+ trees can be quite complicated.
+
+This code has been optimized a bit, but I haven't nearly made as many
+optimizations as are likely possible. I'm open to any suggestions. If you have
+some, send me email at the address given below.
 
 =head2 METHOD REFERENCE
 
@@ -695,7 +702,10 @@ sub delete {
 		if (scalar(@{ $leaf->[($i) * 2] }) > 1) {
 			my $bucket = $leaf->[($i) * 2];
 			@$bucket = grep { &$valcmp($value, $_) != 0 } @$bucket;
-			return;
+
+			# If the bucket has more elements, we quit here. Otherwise, we need
+			# to remove the node.
+			return if @$bucket > 0;
 		} elsif (!grep { &$valcmp($value, $_) == 0 } @{ $leaf->[($i) * 2] }) {
 			# no match for value, let's quit
 			return;
@@ -747,10 +757,12 @@ C<each>, it will be used instead of the default internal cursor. That is,
 
   my $c1 = $tree->new_cursor;
   my $c2 = $tree->new_cursor;
-  while (my ($key, $value) = $tree->each($c1)) {
+  while (my ($key, $values) = $tree->each($c1)) {
       # let's go through $c1 twice as fast
-      my ($nextkey, $nextvalue) = $tree->each($c1);
-      my ($otherkey, $othervalue) = $tree->each($c2);
+      my ($nextkey, $nextvalues) = $tree->each($c1);
+
+	  # next is an alias for each
+      my ($otherkey, $othervalues) = $tree->next($c2);
   }
 
   # and we can reset $c2 after we're done too
@@ -761,14 +773,40 @@ written like this instead:
 
   my $c1 = $tree->new_cursor;
   my $c2 = $tree->new_cursor;
-  while (my ($key, $value) = $c1->each) {
+  while (my ($key, $values) = $c1->each) {
       # let's go through $c1 twice as fast
-      my ($nextkey, $nextvalue) = $c1->each;
-      my ($otherkey, $othervalue) = $c2->each;
+      my ($nextkey, $nextvalues) = $c1->each;
+
+	  # next is an alias for each
+      my ($otherkey, $othervalues) = $c2->each;
   }
 
   # and we can reset $c2 after we're done too
   $c2->reset;
+
+There is an additional feature provided with cursors that is not provided when
+using the internal cursor. You may delete the last key/values pair returned by a
+call to C<each>/C<next> by calling C<delete> on the cursor. Or, you may specify
+a specific value in the bucket to be deleted. For example:
+
+  my $cursor = $tree->new_cursor;
+  while (my ($key, $values) = $cursor->next) {
+	  # In this example, we're storing keys and values such that each key or
+	  # value is an object that has a flag named "bad" that is returned by the
+	  # is_bad method. If "bad" is set, we want to remove the corresponding
+	  # values.
+	  if ($key->is_bad) {
+		  $cursor->delete;
+	  } else {
+		  foreach (@$values) {
+			  $cursor->delete($_) if $_->is_bad;
+		  }
+	  }
+  }
+
+This form of delete is completely safe and will not cause the iterator to slip
+off track as a similar operation might mess up array iteration if one isn't
+careful.
 
 =cut
 
@@ -780,9 +818,78 @@ sub each {
 	$$self{-tree}->each($self);
 }
 
+sub next {
+	my ($self) = @_;
+	$$self{-tree}->each($self);
+}
+
 sub reset {
 	my ($self) = @_;
 	$$self{-tree}->reset($self);
+}
+
+sub delete {
+	my ($self, $value) = @_;
+
+	Carp::croak "No node to delete. This has occurred because a delete was attempted before iteration started or delete was attempted twice on the same node."
+		unless defined $$self{-last};
+
+	# We must be careful as removing the node might throw off $$self{-index} if
+	# $$self{-node} == $$self{-last}{-node}. In the case that we remove the node
+	# altogether and $$self{-node} == $$self{-last}{-node}, we must decrement
+	# $$self{-index} by 2 to keep it from skipping a node or falling off the end
+	# of the node.
+	my $cmp = $$self{-tree}{-keycmp};
+	my $valcmp = $$self{-tree}{-valuecmp};
+
+	# In the case of cursor delete, we have three steps:
+	#   1. Test the following on the node/index pair in $$self{-last}:
+	#        a. If the bucket for the key found contains multiple values, remove
+	#           one and quit.
+	#        c. Otherwise, continue to step 2.
+	#   2. Starting at the top, tell the tree to delete the node/index.
+	#        a. The tree will then prune off this leaf if it becomes empty.
+	#        b. The tree will continue to fix-up the tree as it moves back up
+	#           the tree following deletion.
+	#        c. Continue to step 3.
+	#   3. We now must modify the cursor to make it work properly.
+	#        a. If $$self{-last}{-node} == $$self{-node}, then decrement
+	#           $$self{-index} by 2 since this leaf must still be alive and we
+	#           want the cursor to return the next key/bucket pair rather than
+	#           fall off the end or skip a key/bucket pair.
+	#        b. Delete $$self{-last} to keep us from trying this again.
+	
+	my $leaf = $$self{-last}{-node};
+	my $i = $$self{-last}{-index};
+	if (defined $value) {
+		if (@{ $leaf->[$i] } > 1) {
+			# The bucket contains more than one value. Remove any value matching
+			# this from the bucket and quit if the bucket still has more
+			# elements
+			my $bucket = $leaf->[$i];
+			@$bucket = grep { &$valcmp($value, $_) != 0 } @$bucket;
+			return if @$bucket > 0;
+		} elsif (&$valcmp($value, $leaf->[$i][0]) != 0) {
+			# no match for value, let's quit
+			return;
+		}
+	} # Otherwise, delete the key/bucket pair from the list.
+
+	# We're still here, so either the $value given is the only remaining value
+	# in the bucket or they've told us to remove the key completely.
+	my $values = $$self{-tree}{-root}->delete($$self{-tree}{-n}, $cmp, $leaf->[$i + 1]);
+
+	# if the tree contains only a single value and is a branch, then the tree is
+	# one level shallower than before the delete
+	$$self{-tree}{-root} = $$self{-tree}{-root}->[0]
+			if not $$self{-tree}{-root}->isa('Tree::BPTree::Leaf') and $values == 1;
+
+	# If this node and the last node are equivalent, we need to decrement the
+	# current index to keep the cursor going in the correct place.
+	$$self{-index} -= 2 if defined $$self{-node} and $$self{-last}{-node} == $$self{-node};
+
+	# We can't delete again since we've just annihilated the key
+	delete $$self{-last};
 }
 
 package Tree::BPTree;
@@ -830,31 +937,35 @@ sub each {
 		$$cursor{-index} = 0;
 	}
 
-	if (defined $$cursor{-node} and (@{$$cursor{-node}} + 1) / 2 > 1) {
+	if (defined $$cursor{-node} and @{$$cursor{-node}} > 1) {
 		# The last run didn't detect the end of the list, so give them the next
 		# value
 		my @next = (
-			$$cursor{-node}->[($$cursor{-index}) * 2 + 1],
-			$$cursor{-node}->[($$cursor{-index}) * 2],
+			$$cursor{-node}->[($$cursor{-index}) + 1],
+			$$cursor{-node}->[($$cursor{-index})],
 		);
 
+		# Remember this position, in case we want to delete it
+		$$cursor{-last}{-node}  = $$cursor{-node};
+		$$cursor{-last}{-index} = $$cursor{-index};
+
 		# Increment the pointer
-		if ($$cursor{-index} + 1 == (@{$$cursor{-node}} + 1) / 2 - 1) {
+		if ($$cursor{-index} + 2 == $#{$$cursor{-node}}) {
 			# We've reached the end of a node, move to the next
-			my $next_node = $$cursor{-node}->[($$cursor{-index} + 1) * 2];
+			my $next_node = $$cursor{-node}->[$$cursor{-index} + 2];
 
 			# Check for orphaned nodes and remove them
-			while (defined $next_node and (@$next_node + 1) / 2 == 1) {
+			while (defined $next_node and @$next_node == 1) {
 				$next_node = $next_node->[0];
 			}
-			$$cursor{-node}->[($$cursor{-index} + 1) * 2] = $next_node;
+			$$cursor{-node}->[$$cursor{-index} + 2] = $next_node;
 
 			# Move to the next node
 			$$cursor{-node}  = $next_node;
 			$$cursor{-index} = 0;
 		} else {
 			# We've still got more key/value pairs to read in this node
-			++$$cursor{-index};
+			$$cursor{-index} += 2;
 		}
 
 		return @next;
@@ -863,6 +974,11 @@ sub each {
 		# so we can start anew and return undef once, just like the each
 		# operator.
 		delete $$cursor{-index};
+
+		# Also clear the last pointers so we can't call delete on the cursor
+		# until we've called each at least once.
+		delete $$cursor{-last};
+
 		return ();
 	}
 }

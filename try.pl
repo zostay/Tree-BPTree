@@ -16,11 +16,16 @@ for (@splitstr) {
 	print Dumper($tree);
 }
 
-$tree->reverse;
-print Dumper($tree);
+# $tree->reverse;
+# print Dumper($tree);
 
-$i = 0;
-for (@splitstr) {
-	$tree->delete($_, $i++);
-	print Dumper($tree);
+my $cursor = $tree->new_cursor;
+while (my ($key, $bucket) = $cursor->next) {
+	# We must copy here or else iteration will fail!
+	my @values = @$bucket;
+	for my $value (@values) {
+		print "DELETE($key, $value)\n";
+		$cursor->delete($value);
+		print Dumper($tree);
+	}
 }

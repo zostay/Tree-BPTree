@@ -1,5 +1,11 @@
 Revision history for Perl extension Tree::BPTree.
 
+1.04  Mon Sep 15 2003
+	- Added cursor delete.
+	- Re-optimized each() as cursor delete changed some things.
+	- Added t/cursor_delete.t test for cursor delete.
+	- Added t/cursor_delete_value.t test for cursor delete by value.
+
 1.03  Mon Sep 15 2003
 	- Added prof.pl to perform some Perl profiler comparisons.
 	- Used profiling results to find which methods were causing the biggest
