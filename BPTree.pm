@@ -1,6 +1,6 @@
 package Tree::BPTree;
 
-# $Id: BPTree.pm,v 1.3 2003-09-15 17:45:00 sterling Exp $
+# $Id: BPTree.pm,v 1.4 2003-09-15 19:50:39 sterling Exp $
 
 use 5.008;
 use strict;
@@ -11,7 +11,7 @@ use integer;
 
 use Carp;
 
-our $VERSION = '1.04';
+our $VERSION = '1.05';
 
 =head1 NAME
 
@@ -784,7 +784,7 @@ written like this instead:
   # and we can reset $c2 after we're done too
   $c2->reset;
 
-There is an additional feature provided with cursors that is not provided when
+There are additional features provided with cursors that are not provided when
 using the internal cursor. You may delete the last key/values pair returned by a
 call to C<each>/C<next> by calling C<delete> on the cursor. Or, you may specify
 a specific value in the bucket to be deleted. For example:
@@ -808,6 +808,23 @@ This form of delete is completely safe and will not cause the iterator to slip
 off track as a similar operation might mess up array iteration if one isn't
 careful.
 
+Another feature of cursors, is that you may retrieve the previously returned
+value by calling the C<current> method. This will return the same result as the
+last call to C<next> or C<each>.  That is, unless C<reset> has been called or
+C<delete> removed the previously returned key, then this will return an empty
+list.
+
+For example:
+
+  # This assumes you use the typical string keys with numeric values
+  $cursor = $tree->new_cursor;
+  while (my ($key, $value) = $cursor->next) {
+	  my ($currkey, $currval) = $cursor->current;
+	  die unless $key eq $currkey and $value == $currval
+  }
+
+This example shouldn't die.
+
 =cut
 
 package Tree::BPTree::Cursor;
@@ -821,6 +838,16 @@ sub each {
 sub next {
 	my ($self) = @_;
 	$$self{-tree}->each($self);
+}
+
+sub current {
+	my ($self) = @_;
+	return () unless defined $$self{-last};
+	return (
+		$$self{-last}{-node}->[($$self{-last}{-index}) + 1],
+		$$self{-last}{-node}->[($$self{-last}{-index})],
+	);
+	
 }
 
 sub reset {
