@@ -23,10 +23,7 @@ sub test {
 
 		$tree->delete(reverse(@$pair));
 
-#		print STDERR "TREE: [ ", join(', ', $tree->flattened_values), " ]\n";
-#		print STDERR "LIST: [ ", join(', ', @sorted), " ]\n";
-
-		is_deeply([ $tree->flattened_values ], \@sorted);
+		is_deeply([ $tree->values ], \@sorted);
 	}
 }
 

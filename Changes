@@ -1,5 +1,18 @@
 Revision history for Perl extension Tree::BPTree.
 
+1.06  Mon Sep 22 2003
+	- Revised each() to work more like one would expect. It returns key/value
+	  pairs rather than key/bucket pairs. This is more useful, though slower.
+	- Removed grep_flattened_values() and flattened_values() since they are no
+	  longer required with the changes to each().
+	- Fixed Tree::BPTree::Cursor::delete to match the new functionality and
+	  removed the optional $value argument.
+	- Fixed documentation for each() change.
+	- Fixed tests for each() change.
+	- Removed t/cursor_delete_value.t since it is no longer applicable.
+	- Updated the MANIFEST to reflect the missing t/cursor_delet_value.t.
+	- Updated documentation to reflect the latest benchmarks.
+
 1.05  Mon Sep 15 2003
 	- Added cursor current() method.
 	- Added a new test to t/cursors.t for testing this method.

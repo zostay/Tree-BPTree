@@ -16,7 +16,7 @@ sub test {
 	my ($tree) = @_;
 
 	$tree->reverse;
-	is_deeply([ $tree->flattened_values ], \@sorted);
+	is_deeply([ $tree->values ], \@sorted);
 }
 
 runtests;

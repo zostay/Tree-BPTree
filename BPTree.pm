@@ -1,6 +1,6 @@
 package Tree::BPTree;
 
-# $Id: BPTree.pm,v 1.4 2003-09-15 19:50:39 sterling Exp $
+# $Id: BPTree.pm,v 1.5 2003-09-22 14:03:16 sterling Exp $
 
 use 5.008;
 use strict;
@@ -11,7 +11,7 @@ use integer;
 
 use Carp;
 
-our $VERSION = '1.05';
+our $VERSION = '1.06';
 
 =head1 NAME
 
@@ -56,15 +56,15 @@ Tree::BPTree - Perl implementation of B+ trees
   $tree->reset;
 
   # You might also be interested in using multiple each loops at once, which is
-  # possible through the cursor syntax. You can even delete keys or particular
-  # values attached to keys with cursors.
+  # possible through the cursor syntax. You can even delete individual pairs
+  # from the list during iteration.
   my $cursor = $tree->new_cursor;
-  while (my ($key, $values) = $cursor->each) {
+  while (my ($key, $value) = $cursor->each) {
       my $nested = $tree->new_cursor;
-      while (my ($nkey, $nvalues) = $nested->each) {
+      while (my ($nkey, $nvalue) = $nested->each) {
           if ($key->shouldnt_be_in_this_tree_with($nkey)) {
-			  $nested->delete;
-		  }
+              $nested->delete;
+          }
       }
   }
 
@@ -79,12 +79,10 @@ Tree::BPTree - Perl implementation of B+ trees
   my @pairs  = $tree->grep                 (sub { $_[0] =~ /\S/ });
   my @keys   = $tree->grep_keys            (sub { $_[0] =~ /\S/ });
   my @values = $tree->grep_values          (sub { $_[0] =~ /\S/ });
-  my @flatvs = $tree->grep_flattened_values(sub { $_[0] =~ /\S/ });
 
-  # Get all keys, values, or flattened values
+  # Get all keys, values
   my @all_keys   = $tree->keys;
   my @all_values = $tree->values;
-  my @all_flagvs = $tree->flattened_values;
 
   # Clear it out and start over
   $tree->clear;
@@ -759,10 +757,10 @@ C<each>, it will be used instead of the default internal cursor. That is,
   my $c2 = $tree->new_cursor;
   while (my ($key, $values) = $tree->each($c1)) {
       # let's go through $c1 twice as fast
-      my ($nextkey, $nextvalues) = $tree->each($c1);
+      my ($nextkey, $nextvalue) = $tree->each($c1);
 
-	  # next is an alias for each
-      my ($otherkey, $othervalues) = $tree->next($c2);
+      # next is an alias for each
+      my ($otherkey, $othervalue) = $tree->next($c2);
   }
 
   # and we can reset $c2 after we're done too
@@ -773,12 +771,12 @@ written like this instead:
 
   my $c1 = $tree->new_cursor;
   my $c2 = $tree->new_cursor;
-  while (my ($key, $values) = $c1->each) {
+  while (my ($key, $value) = $c1->each) {
       # let's go through $c1 twice as fast
-      my ($nextkey, $nextvalues) = $c1->each;
+      my ($nextkey, $nextvalue) = $c1->each;
 
-	  # next is an alias for each
-      my ($otherkey, $othervalues) = $c2->each;
+      # next is an alias for each
+      my ($otherkey, $othervalue) = $c2->each;
   }
 
   # and we can reset $c2 after we're done too
@@ -790,18 +788,12 @@ call to C<each>/C<next> by calling C<delete> on the cursor. Or, you may specify
 a specific value in the bucket to be deleted. For example:
 
   my $cursor = $tree->new_cursor;
-  while (my ($key, $values) = $cursor->next) {
-	  # In this example, we're storing keys and values such that each key or
-	  # value is an object that has a flag named "bad" that is returned by the
-	  # is_bad method. If "bad" is set, we want to remove the corresponding
-	  # values.
-	  if ($key->is_bad) {
-		  $cursor->delete;
-	  } else {
-		  foreach (@$values) {
-			  $cursor->delete($_) if $_->is_bad;
-		  }
-	  }
+  while (my ($key, $value) = $cursor->next) {
+      # In this example, the keys are objects with a is_bad method. If "bad" is
+      # set, we want to remove the corresponding values.
+      if ($key->is_bad) {
+          $cursor->delete;
+      }
   }
 
 This form of delete is completely safe and will not cause the iterator to slip
@@ -819,8 +811,8 @@ For example:
   # This assumes you use the typical string keys with numeric values
   $cursor = $tree->new_cursor;
   while (my ($key, $value) = $cursor->next) {
-	  my ($currkey, $currval) = $cursor->current;
-	  die unless $key eq $currkey and $value == $currval
+      my ($currkey, $currval) = $cursor->current;
+      die unless $key eq $currkey and $value == $currval
   }
 
 This example shouldn't die.
@@ -845,7 +837,7 @@ sub current {
 	return () unless defined $$self{-last};
 	return (
 		$$self{-last}{-node}->[($$self{-last}{-index}) + 1],
-		$$self{-last}{-node}->[($$self{-last}{-index})],
+		$$self{-last}{-node}->[($$self{-last}{-index})][($$self{-last}{-value})],
 	);
 	
 }
@@ -856,7 +848,7 @@ sub reset {
 }
 
 sub delete {
-	my ($self, $value) = @_;
+	my ($self) = @_;
 
 	Carp::croak "No node to delete. This has occurred because a delete was attempted before iteration started or delete was attempted twice on the same node."
 		unless defined $$self{-last};
@@ -869,41 +861,25 @@ sub delete {
 	my $cmp = $$self{-tree}{-keycmp};
 	my $valcmp = $$self{-tree}{-valuecmp};
 
-	# In the case of cursor delete, we have three steps:
-	#   1. Test the following on the node/index pair in $$self{-last}:
-	#        a. If the bucket for the key found contains multiple values, remove
-	#           one and quit.
-	#        c. Otherwise, continue to step 2.
-	#   2. Starting at the top, tell the tree to delete the node/index.
-	#        a. The tree will then prune off this leaf if it becomes empty.
-	#        b. The tree will continue to fix-up the tree as it moves back up
-	#           the tree following deletion.
-	#        c. Continue to step 3.
-	#   3. We now must modify the cursor to make it work properly.
-	#        a. If $$self{-last}{-node} == $$self{-node}, then decrement
-	#           $$self{-index} by 2 since this leaf must still be alive and we
-	#           want the cursor to return the next key/bucket pair rather than
-	#           fall off the end or skip a key/bucket pair.
-	#        b. Delete $$self{-last} to keep us from trying this again.
-	
 	my $leaf = $$self{-last}{-node};
 	my $i = $$self{-last}{-index};
-	if (defined $value) {
-		if (@{ $leaf->[$i] } > 1) {
-			# The bucket contains more than one value. Remove any value matching
-			# this from the bucket and quit if the bucket still has more
-			# elements
-			my $bucket = $leaf->[$i];
-			@$bucket = grep { &$valcmp($value, $_) != 0 } @$bucket;
-			return if @$bucket > 0;
-		} elsif (&$valcmp($value, $leaf->[$i][0]) != 0) {
-			# no match for value, let's quit
-			return;
-		}
-	} # Otherwise, delete the key/bucket pair from the list.
+	my $value = $$self{-last}{-value};
+	if (@{ $leaf->[$i] } > 1) {
+		# The bucket contains more than one value. Drop the current index, keep
+		# us from calling delete again and quit.
+		my $bucket = $leaf->[$i];
+		splice @$bucket, $value, 1;
 
-	# We're still here, so either the $value given is the only remaining value
-	# in the bucket or they've told us to remove the key completely.
+		# If this node and the last node are equivalent, we need to decrement
+		# the current value to keep us from skipping nodes are falling of the
+		# end of the bucket
+		--$$self{-value} if defined $$self{-node} and $$self{-last}{-node} == $$self{-node};
+
+		delete $$self{-last};
+		return;
+	} # Otherwise, this value is the last in the node and we drop it entirely
+
+	# We're still here, so the $value is the only remaining value
 	my $values = $$self{-tree}{-root}->delete($$self{-tree}{-n}, $cmp, $leaf->[$i + 1]);
 
 	# if the tree contains only a single value and is a branch, then the tree is
@@ -962,6 +938,7 @@ sub each {
 	unless (defined $$cursor{-index}) {
 		$$cursor{-node}  = $$self{-root}->first_leaf;
 		$$cursor{-index} = 0;
+		$$cursor{-value} = 0;
 	}
 
 	if (defined $$cursor{-node} and @{$$cursor{-node}} > 1) {
@@ -969,33 +946,44 @@ sub each {
 		# value
 		my @next = (
 			$$cursor{-node}->[($$cursor{-index}) + 1],
-			$$cursor{-node}->[($$cursor{-index})],
+			$$cursor{-node}->[($$cursor{-index})][($$cursor{-value})],
 		);
 
 		# Remember this position, in case we want to delete it
 		$$cursor{-last}{-node}  = $$cursor{-node};
 		$$cursor{-last}{-index} = $$cursor{-index};
+		$$cursor{-last}{-value} = $$cursor{-value};
 
-		# Increment the pointer
-		if ($$cursor{-index} + 2 == $#{$$cursor{-node}}) {
-			# We've reached the end of a node, move to the next
-			my $next_node = $$cursor{-node}->[$$cursor{-index} + 2];
+		# Increment the value point first
+		if ($$cursor{-value} == $#{$$cursor{-node}[$$cursor{-index}]}) {
+			# In this case, we're at the end, so we need to increment in the
+			# index and return this to the first value of the next bucket
+			$$cursor{-value} = 0;
 
-			# Check for orphaned nodes and remove them
-			while (defined $next_node and @$next_node == 1) {
-				$next_node = $next_node->[0];
+			if ($$cursor{-index} + 2 == $#{$$cursor{-node}}) {
+				# We've reached the end of a node, move to the next
+				my $next_node = $$cursor{-node}->[$$cursor{-index} + 2];
+
+				# Check for orphaned nodes and remove them
+				while (defined $next_node and @$next_node == 1) {
+					$next_node = $next_node->[0];
+				}
+				$$cursor{-node}->[$$cursor{-index} + 2] = $next_node;
+
+				# Move to the next node
+				$$cursor{-node}  = $next_node;
+				$$cursor{-index} = 0;
+			} else {
+				# We've still got more key/value pairs to read in this node
+				$$cursor{-index} += 2;
 			}
-			$$cursor{-node}->[$$cursor{-index} + 2] = $next_node;
 
-			# Move to the next node
-			$$cursor{-node}  = $next_node;
-			$$cursor{-index} = 0;
+			return @next;
 		} else {
-			# We've still got more key/value pairs to read in this node
-			$$cursor{-index} += 2;
+			# We've still got more values, so we need to get ready for the next
+			++$$cursor{-value};
+			return @next;
 		}
-
-		return @next;
 	} else {
 		# The last run reached the end of the list, so delete the -index element
 		# so we can start anew and return undef once, just like the each
@@ -1065,8 +1053,6 @@ sub map {
 
 =item @values = $tree->grep_values(\&pred)
 
-=item @flattened_values = $tree->grep_flattened_values(\&pred)
-
 Iterates through all key/value pairs in sort order. For each key/value pair, the
 function C<&pred> will be called by passing the key as the first argument and
 the value as the second. If C<&pred> returns a true value, then the matched
@@ -1077,11 +1063,7 @@ reference where the first element is they key and the second is the value.
 
 C<grep_keys> returns a list of keys.
 
-C<grep_values> returns a list of values, such that each value is an array
-reference containing all the values in each bucket.
-
-C<grep_flattened_values> returns a list of values where each bucket has been
-flattened into a single list.
+C<grep_values> returns a list of values.
 
 =cut
 
@@ -1118,24 +1100,11 @@ sub grep_values {
 	return @result;
 }
 
-sub grep_flattened_values {
-	my ($self, $pred) = @_;
-
-	my @result;
-	while (my ($k, $v) = $self->each) {
-		push @result, @$v if &$pred($k, $v);
-	}
-
-	return @result;
-}
-
 =item @pairs = $tree->pairs
 
 =item @keys = $tree->keys
 
 =item @values = $tree->values
-
-=item @flattened_values = $tree->flattened_values
 
 Returns all elements of the given type.
 
@@ -1145,11 +1114,7 @@ second element is a bucket, which is an array-reference of stored values.
 
 C<keys> returns all keys stored in the tree.
 
-C<values> returns all buckets of values stored in the tree. Each bucket is an
-array-reference of stored values.
-
-C<flattened_values> returns all values stored in the tree by flattening the
-buckets of stored values.
+C<values> returns all values stored in the tree.
 
 =cut
 
@@ -1157,8 +1122,7 @@ sub pairs {
 	my ($self) = @_;
 
 	my @pairs;
-	my $cursor = $self->new_cursor;
-	while (my ($k, $v) = $self->each($cursor)) {
+	while (my ($k, $v) = $self->each) {
 		push @pairs, [ $k, $v ];
 	}
 
@@ -1169,8 +1133,7 @@ sub keys {
 	my ($self) = @_;
 
 	my @keys;
-	my $cursor = $self->new_cursor;
-	while (my ($k, $v) = $self->each($cursor)) {
+	while (my ($k, $v) = $self->each) {
 		push @keys, $k;
 	}
 
@@ -1181,21 +1144,8 @@ sub values {
 	my ($self) = @_;
 
 	my @values;
-	my $cursor = $self->new_cursor;
-	while (my ($k, $v) = $self->each($cursor)) {
+	while (my ($k, $v) = $self->each) {
 		push @values, $v;
-	}
-
-	return @values;
-}
-
-sub flattened_values {
-	my ($self) = @_;
-	
-	my @values;
-	my $cursor = $self->new_cursor;
-	while (my ($k, $v) = $self->each($cursor)) {
-		push @values, @$v;
 	}
 
 	return @values;
@@ -1240,17 +1190,17 @@ code for performing essentially the same thing using different data structures.
 On my machine, a small benchmark showed the following:
 
   Insert into B+ Trees (this implementation) is:
-    62   times slower than hash insert and
-     4   times slower than list insert.
+    61   times slower than hash insert and
+     3.9 times slower than ordered list insert.
 
   Ordered iteration of B+ Trees is:
-     1.3 times slower than ordering a hash and then iterating the pairs and
-    12   times slower than iterating through an ordered list.
+     1.6 times slower than ordering a hash and then iterating the pairs and
+    14   times slower than iterating through an ordered list.
 
   Finding a key in B+ Trees is:
-    73   times slower than hash fetch but
+    34   times slower than hash fetch but
      1.2 times faster than searching an ordered list (with grep, which probably
-         isn't the fastest solution).
+         isn't the fastest solution, a manual binary search should be better).
 
 I'm still putting together more benchmarks and looking into places where
 improvement is possible. Iteration of this structure should scale better than

@@ -15,7 +15,7 @@ my @sorted = map { $_->[0] } sort { $a->[1] cmp $b->[1] } @pairs;
 sub test {
 	my ($tree) = @_;
 
-	is_deeply([ $tree->flattened_values ], \@sorted);
+	is_deeply([ $tree->values ], \@sorted);
 }
 
 runtests;
