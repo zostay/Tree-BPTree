@@ -1,0 +1,24 @@
+Revision history for Perl extension Tree::BPTree.
+
+1.02  Sat Sep 13 2003
+	- Added benchmark.pl to compare speed to hashes and lists (results are
+	  attrocious.
+	- Corrected typos in the Changes file.
+	- Added a line to Makefile.PL to prevent *.pl files from being installed.
+	- Updated documentation to reflect poor benchmarks.
+	- Added the reverse() method to perform an action similar to the Perl
+	  reverse operator.
+	- Added the new_cursor() method and altered the way each() works to allow
+	  for multiple simultaneous iterators.
+	- Added a missing pairs() method.
+	- Altered keys(), values(), and flattened_values() to use the new each()
+	  method with a cursor.
+	- Added t/cursors.t to test simultaneous cursors.
+	- Added t/reverse.t to test reverse().
+	- Added t/reverse_find.t to test find() after a reverse() has taken
+	  place--since this updates the -keycmp subroutine.
+
+1.01  Wed Sep 10 2003
+	- original version; created by h2xs 1.22 with options
+		-AXn Tree::BPTree
+
